@@ -1,0 +1,29 @@
+filebeat.inputs:
+  - type: log
+    enabled: true
+    paths:
+      - /var/log/nginx/access.log
+    fields:
+      log_source: nginx
+      shipper: filebeat
+    fields_under_root: true
+
+processors:
+  - dissect:
+      tokenizer: '%{clientip} %{ident} %{auth} [%{nginx_timestamp}] "%{verb} %{request} HTTP/%{httpversion}" %{response} %{bytes} "%{referrer}" "%{agent}"'
+      field: "message"
+      target_prefix: "nginx"
+  - add_host_metadata: ~
+
+setup.ilm.enabled: false
+setup.template.name: "filebeat-nginx"
+setup.template.pattern: "filebeat-nginx-*"
+
+output.elasticsearch:
+  hosts: ["http://elasticsearch:9200"]
+  index: "filebeat-nginx-%{+yyyy.MM.dd}"
+
+setup.kibana:
+  host: "kibana:5601"
+
+logging.level: info

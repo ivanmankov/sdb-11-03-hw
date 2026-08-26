@@ -1,0 +1,100 @@
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.28
+    container_name: elasticsearch
+    environment:
+      - cluster.name=sdb-elk-d1cb23
+      - node.name=es-node-01
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+    ports:
+      - "9200:9200"
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      retries: 20
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:7.17.28
+    container_name: kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - I18N_LOCALE=ru-RU
+    ports:
+      - "5601:5601"
+    depends_on:
+      elasticsearch: { condition: service_healthy }
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: nginx
+    command: /bin/sh -c "rm -f /var/log/nginx/access.log /var/log/nginx/error.log && nginx -g 'daemon off;'"
+    ports:
+      - "8080:80"
+    volumes:
+      - nginx-logs:/var/log/nginx
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:7.17.28
+    container_name: logstash
+    user: "0"
+    environment:
+      - "LS_JAVA_OPTS=-Xms512m -Xmx512m"
+      - xpack.monitoring.enabled=false
+    volumes:
+      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - nginx-logs:/var/log/nginx:ro
+      - pg-data:/var/lib/postgresql/data:ro
+    depends_on:
+      elasticsearch: { condition: service_healthy }
+
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:7.17.28
+    container_name: filebeat
+    user: root
+    command: ["filebeat", "-e", "--strict.perms=false"]
+    volumes:
+      - ./filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - nginx-logs:/var/log/nginx:ro
+      - fb-data:/usr/share/filebeat/data
+    depends_on:
+      elasticsearch: { condition: service_healthy }
+    profiles: ["beats"]
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    environment:
+      - POSTGRES_PASSWORD=netology
+      - POSTGRES_DB=demo
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    command:
+      - postgres
+      - -c
+      - logging_collector=on
+      - -c
+      - log_directory=/var/lib/postgresql/data/log
+      - -c
+      - log_filename=postgresql.log
+      - -c
+      - log_statement=all
+      - -c
+      - log_min_duration_statement=0
+      - -c
+      - log_connections=on
+      - -c
+      - log_disconnections=on
+    profiles: ["extra"]
+
+volumes:
+  es-data:
+  nginx-logs:
+  pg-data:
+  fb-data:
